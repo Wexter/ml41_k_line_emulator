@@ -14,6 +14,7 @@
 #include "sdkconfig.h"
 #include "driver/uart.h"
 #include "esp_system.h"
+#include <string.h>
 
 static const char *TAG = "example";
 
@@ -103,13 +104,12 @@ void blink_led(uint8_t count)
     } while (--count > 0);
 }
 
-uint8_t ecu_connection_sequence_number = 9;
-
-uint8_t ecu_eprom_code[] = { 0x0D, 0x01, 0xF6, 0x31, 0x33, 0x31, 0x30, 0x30, 0x32, 0x31, 0x36, 0x32, 0x30, 0x03, };
-uint8_t ecu_bosch_code[] = { 0x0D, 0x03, 0xF6, 0x33, 0x34, 0x34, 0x36, 0x35, 0x33, 0x37, 0x36, 0x32, 0x31, 0x03, };
-uint8_t ecu_gm_code[] =    { 0x0D, 0x05, 0xF6, 0x30, 0x33, 0x33, 0x34, 0x32, 0x33, 0x30, 0x39, 0x54, 0x46, 0x03, };
-uint8_t ecu_no_data[] = { 0x03, 0x07, 0x09, 0x03 };
-uint8_t ecu_rpm_data[] = { 0x04, 0x09, 0xfe, 0x00, 0x03, };
+uint8_t ecu_eprom_code[]    = { 0x0D, 0x01, 0xF6, 0x31, 0x33, 0x31, 0x30, 0x30, 0x32, 0x31, 0x36, 0x32, 0x30, 0x03, };
+uint8_t ecu_bosch_code[]    = { 0x0D, 0x03, 0xF6, 0x33, 0x34, 0x34, 0x36, 0x35, 0x33, 0x37, 0x36, 0x32, 0x31, 0x03, };
+uint8_t ecu_gm_code[]       = { 0x0D, 0x05, 0xF6, 0x30, 0x33, 0x33, 0x34, 0x32, 0x33, 0x30, 0x39, 0x54, 0x46, 0x03, };
+uint8_t ecu_no_data[]       = { 0x03, 0x07, 0x09, 0x03 };
+uint8_t ecu_rpm_data[]      = { 0x04, 0x09, 0xfe, 0x00, 0x03, };
+uint8_t ecu_errors_data[]   = { 0x08, 0x00, 0xFC, 0x41, 0x60, 0x11, 0x3D, 0x14, 0x03, }; // 0x40 0x60 0xA0 0xE0
 
 void k_line_send_packet(uint8_t* packet)
 {
@@ -117,14 +117,12 @@ void k_line_send_packet(uint8_t* packet)
         k_line_send_byte(packet[idx], idx != packet[0]);
 }
 
-void k_line_recv_packet()
+void k_line_recv_packet(uint8_t* rx_buff)
 {
-    uint8_t rx_buff;
+    k_line_read_byte(rx_buff, true);
 
-    k_line_read_byte(&rx_buff, true);
-
-    for (uint8_t idx = rx_buff; idx > 0; idx--)
-        k_line_read_byte(&rx_buff, idx > 1);
+    for (uint8_t idx = 1; idx <= rx_buff[0]; idx++)
+        k_line_read_byte(rx_buff + idx, idx < rx_buff[0]);
 }
 
 void init_full_speed_uart()
@@ -134,6 +132,8 @@ void init_full_speed_uart()
     ESP_LOGI(TAG, "init_full_speed_uart");
 
     blink_led(1);
+
+    uint8_t rx_buffer[64] = { 0x00 };
 
     const uart_config_t uart_config = {
         .baud_rate = UART_BAUD_RATE,
@@ -181,7 +181,7 @@ void init_full_speed_uart()
 
     delay(10);
 
-    k_line_recv_packet();
+    k_line_recv_packet(rx_buffer);
 
     delay(50);
 
@@ -189,37 +189,38 @@ void init_full_speed_uart()
 
     delay(10);
 
-    k_line_recv_packet();
+    k_line_recv_packet(rx_buffer);
 
     delay(50);
 
     k_line_send_packet(ecu_gm_code);
 
-    int ecu_rpm_increment = 5;
+    uint8_t response_data[64] = { 0x00 };
+    uint8_t ecu_connection_sequence_number = 7;
 
     while (true) {
         delay(20);
 
-        k_line_recv_packet();
+        k_line_recv_packet(rx_buffer);
 
         delay(50);
 
-        // ecu_rpm_data[1] = ecu_connection_sequence_number;
-        ecu_rpm_data[3] = rand() % 160;
-        // ecu_rpm_data[3] += ecu_rpm_increment;
-        k_line_send_packet(ecu_rpm_data);
+        if (rx_buffer[0] == 0x03 && rx_buffer[2] == 0x07) // ECU errors request
+            memcpy(response_data, ecu_errors_data, ecu_errors_data[0] + 1);
+        else if (rx_buffer[0] == 0x06 && rx_buffer[2] == 0x01 && rx_buffer[3] == 0x01 && rx_buffer[4] == 0x00 && rx_buffer[5] == 0x3a) // engine rpm request
+            memcpy(response_data, ecu_rpm_data, ecu_rpm_data[0] + 1);
+        else
+            memcpy(response_data, ecu_no_data, ecu_no_data[0] + 1);
+
+        response_data[1] = ecu_connection_sequence_number;
+
+        k_line_send_packet(response_data);
 
         // update sequence number
         ecu_connection_sequence_number += 2;
-
-        if (ecu_rpm_data[3] >= 160 )
-            ecu_rpm_increment = -5;
-
-        if (ecu_rpm_data[3] == 0)
-            ecu_rpm_increment = 5;
     }
 
-    delay(5000);
+    // delay(5000);
 
 task_end:
     uart_driver_delete(K_LINE_UART_NUMBER);
