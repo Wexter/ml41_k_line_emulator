@@ -108,8 +108,14 @@ uint8_t ecu_eprom_code[]    = { 0x0D, 0x01, 0xF6, 0x31, 0x33, 0x31, 0x30, 0x30, 
 uint8_t ecu_bosch_code[]    = { 0x0D, 0x03, 0xF6, 0x33, 0x34, 0x34, 0x36, 0x35, 0x33, 0x37, 0x36, 0x32, 0x31, 0x03, };
 uint8_t ecu_gm_code[]       = { 0x0D, 0x05, 0xF6, 0x30, 0x33, 0x33, 0x34, 0x32, 0x33, 0x30, 0x39, 0x54, 0x46, 0x03, };
 uint8_t ecu_no_data[]       = { 0x03, 0x07, 0x09, 0x03 };
-uint8_t ecu_rpm_data[]      = { 0x04, 0x09, 0xfe, 0x00, 0x03, };
+uint8_t ecu_rpm_data[]      = { 0x04, 0x09, 0xFE, 0x00, 0x03, };
 uint8_t ecu_errors_data[]   = { 0x08, 0x00, 0xFC, 0x41, 0x60, 0x11, 0x3D, 0x14, 0x03, }; // 0x40 0x60 0xA0 0xE0
+
+uint8_t ecu_tps_data[]      = { 0x04, 0x00, 0xFE, 0x10 | 0x04, 0x03, }; // [3] & 3: 0 - MID, 1 - FULL, 2 - IDLE, 3 - ERR. [3] & 0x04 == 0: Manual transmission. [3] & 0x20 == 0: O2 sensor present
+uint8_t ecu_ac_data[]           = { 0x04, 0x00, 0xFE, 0x08 | 0x10, 0x03, }; // [3] & 0x08 == 0: AC drive off, [3] & 0x10 == 0: AC switch off
+uint8_t ecu_lambda_reg_data[]   = { 0x04, 0x00, 0xFE, 0x20, 0x03, }; // [3] & 0x20 == 0: open
+uint8_t ecu_engine_power_data[] = { 0x04, 0x00, 0xFE, 0x20, 0x03, }; // [3] & 0x04 == 0: Fuel pump on, [3] & 0x20 == 0: engine torque control off
+uint8_t ecu_adsorber_data[]     = { 0x04, 0x00, 0xFE, 0x20, 0x03, }; // [3] & 0x20 == 0: Valve open
 
 void k_line_send_packet(uint8_t* packet)
 {
@@ -207,8 +213,18 @@ void init_full_speed_uart()
 
         if (rx_buffer[0] == 0x03 && rx_buffer[2] == 0x07) // ECU errors request
             memcpy(response_data, ecu_errors_data, ecu_errors_data[0] + 1);
-        else if (rx_buffer[0] == 0x06 && rx_buffer[2] == 0x01 && rx_buffer[3] == 0x01 && rx_buffer[4] == 0x00 && rx_buffer[5] == 0x3a) // engine rpm request
+        else if (rx_buffer[0] == 0x06 && rx_buffer[2] == 0x01 && rx_buffer[3] == 0x01 && rx_buffer[4] == 0x00 && rx_buffer[5] == 0x3A) // engine rpm request
             memcpy(response_data, ecu_rpm_data, ecu_rpm_data[0] + 1);
+        else if (rx_buffer[0] == 0x06 && rx_buffer[2] == 0x01 && rx_buffer[3] == 0x01 && rx_buffer[4] == 0x00 && rx_buffer[5] == 0x22) // AC drive & switch
+            memcpy(response_data, ecu_ac_data, ecu_ac_data[0] + 1);
+        else if (rx_buffer[0] == 0x06 && rx_buffer[2] == 0x01 && rx_buffer[3] == 0x01 && rx_buffer[4] == 0x00 && rx_buffer[5] == 0x29) // lambda reg
+            memcpy(response_data, ecu_lambda_reg_data, ecu_lambda_reg_data[0] + 1);
+        else if (rx_buffer[0] == 0x06 && rx_buffer[2] == 0x01 && rx_buffer[3] == 0x01 && rx_buffer[4] == 0x01 && rx_buffer[5] == 0x90) // engine power
+            memcpy(response_data, ecu_engine_power_data, ecu_engine_power_data[0] + 1);
+        else if (rx_buffer[0] == 0x06 && rx_buffer[2] == 0x01 && rx_buffer[3] == 0x01 && rx_buffer[4] == 0x01 && rx_buffer[5] == 0xB0) // adsorber
+            memcpy(response_data, ecu_adsorber_data, ecu_adsorber_data[0] + 1);
+        else if (rx_buffer[0] == 0x06 && rx_buffer[2] == 0x01 && rx_buffer[3] == 0x01 && rx_buffer[4] == 0x00 && rx_buffer[5] == 0x20) // TPS
+            memcpy(response_data, ecu_tps_data, ecu_tps_data[0] + 1);
         else
             memcpy(response_data, ecu_no_data, ecu_no_data[0] + 1);
 
