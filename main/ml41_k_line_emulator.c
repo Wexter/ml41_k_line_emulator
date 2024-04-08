@@ -29,7 +29,9 @@ static const char *TAG = "example";
 #define K_LINE_TDX_PIN GPIO_NUM_1
 #define K_LINE_RXD_PIN GPIO_NUM_3
 
-#define K_LINE_INIT_PIN GPIO_NUM_0
+#define K_LINE_INIT_PIN K_LINE_RXD_PIN
+
+// #define K_LINE_INIT_PIN GPIO_NUM_0
 
 // #define K_LINE_UART_NUMBER UART_NUM_2
 // #define K_LINE_TDX_PIN GPIO_NUM_17
@@ -61,11 +63,6 @@ const uint8_t ECU_REQUESTS[][8] = {
    { 0x06, 0x00, 0x01, 0x01, 0x00, 0x42, 0x03, 0x00 }, // 0x14
    { 0x06, 0x00, 0x01, 0x02, 0x00, 0x62, 0x03, 0x00 }, // 0x15
 
-   // ML1.5 commands
-   { 0x03, 0x00, 0x12, 0x03, 0x00, 0x00, 0x00, 0x00 }, // 0x16
-   { 0x03, 0x00, 0x1c, 0x03, 0x00, 0x00, 0x00, 0x00 }, // 0x17
-   { 0x06, 0x00, 0x01, 0x01, 0x01, 0xF8, 0x03, 0x00 }, // 0x18
-
    // ML4.1 additional parameters
    { 0x06, 0x00, 0x01, 0x01, 0x00, 0x22, 0x03, 0x00 }, // 0x19
    { 0x06, 0x00, 0x01, 0x01, 0x00, 0x29, 0x03, 0x00 }, // 0x1a
@@ -76,6 +73,11 @@ const uint8_t ECU_REQUESTS[][8] = {
    { 0x04, 0x00, 0x04, 0x0e, 0x03, 0x00, 0x00, 0x00 }, // 0x1d
    { 0x04, 0x00, 0x04, 0x1f, 0x03, 0x00, 0x00, 0x00 }, // 0x1e
    { 0x04, 0x00, 0x04, 0x21, 0x03, 0x00, 0x00, 0x00 }, // 0x1f
+
+//    ML1.5 commands
+//    { 0x03, 0x00, 0x12, 0x03, 0x00, 0x00, 0x00, 0x00 }, // 0x16
+//    { 0x03, 0x00, 0x1c, 0x03, 0x00, 0x00, 0x00, 0x00 }, // 0x17
+//    { 0x06, 0x00, 0x01, 0x01, 0x01, 0xF8, 0x03, 0x00 }, // 0x18
 
    // ML1.5 devices test
    /*
@@ -143,11 +145,11 @@ void configure_led(void)
     gpio_set_direction(LED_GPIO, GPIO_MODE_OUTPUT);
 }
 
-uint8_t find_packet_idx(const uint8_t *packet)
+uint8_t find_request_packet_idx(const uint8_t *packet)
 {
-    for (uint8_t request_idx = 0; request_idx <= ECU_MAX_REQUEST; request_idx++)
+    for (uint8_t request_idx = 0; request_idx < EcuRequestMax; request_idx++)
     {
-        if (packet[0] != ECU_REQUESTS[request_idx][0])
+        if (packet[0] != ECU_REQUESTS[request_idx][0]) // compapre length first
             continue;
 
         uint8_t byte_idx = 1;
@@ -312,29 +314,29 @@ void start_session()
 
         delay(50);
 
-        uint8_t packet_idx = find_packet_idx(rx_buffer);
+        uint8_t packet_idx = find_request_packet_idx(rx_buffer);
 
         switch (packet_idx)
         {
-        case GetErrorCodes:
+        case GetErrorCodes: // 0x11
             memcpy(response_data, ecu_errors_data, ecu_errors_data[0] + 1);
             break;
-        case GetRPM:
+        case GetRPM: // 0x12
             memcpy(response_data, ecu_rpm_data, ecu_rpm_data[0] + 1);
             break;
-        case GetTPS:
+        case GetTPS: // 0x13
             memcpy(response_data, ecu_tps_data, ecu_tps_data[0] + 1);
             break;
-        case GetEngineLoad:
+        case GetEngineLoad: //0x19
             memcpy(response_data, ecu_ac_data, ecu_ac_data[0] + 1);
             break;
-        case GetO2Params:
+        case GetO2Params: // 0x1a
             memcpy(response_data, ecu_lambda_reg_data, ecu_lambda_reg_data[0] + 1);
             break;
-        case GetFuelPumpParams:
+        case GetFuelPumpParams: // 0x1b
             memcpy(response_data, ecu_engine_power_data, ecu_engine_power_data[0] + 1);
             break;
-        case GetAdsorberParams:
+        case GetAdsorberParams: // 0x1c
             memcpy(response_data, ecu_adsorber_data, ecu_adsorber_data[0] + 1);
             break;
         default:
