@@ -1,11 +1,3 @@
-/* Blink Example
-
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -16,11 +8,11 @@
 #include "esp_system.h"
 #include <string.h>
 
-static const char *TAG = "example";
+static const char *TAG = "ml41-emulator";
 
 #define LED_GPIO 2
 #define MS_TICKS(ms) (ms / portTICK_PERIOD_MS)
-#define delay(ms) vTaskDelay(ms / portTICK_PERIOD_MS);
+#define delay(ms) vTaskDelay(ms / portTICK_PERIOD_MS)
 
 #define UART_BAUD_RATE 8860
 #define UART_RX_BUF_SIZE 256
@@ -31,7 +23,9 @@ static const char *TAG = "example";
 
 #define K_LINE_INIT_PIN K_LINE_RXD_PIN
 
-// #define K_LINE_INIT_PIN GPIO_NUM_0
+#ifndef K_LINE_INIT_PIN
+#define K_LINE_INIT_PIN GPIO_NUM_0
+#endif
 
 // #define K_LINE_UART_NUMBER UART_NUM_2
 // #define K_LINE_TDX_PIN GPIO_NUM_17
@@ -128,6 +122,30 @@ uint8_t ecu_lambda_reg_data[]   = { 0x04, 0x00, 0xFE, 0x20, 0x03, }; // [3] & 0x
 uint8_t ecu_engine_power_data[] = { 0x04, 0x00, 0xFE, 0x20, 0x03, }; // [3] & 0x04 == 0: Fuel pump on, [3] & 0x20 == 0: engine torque control off
 uint8_t ecu_adsorber_data[]     = { 0x04, 0x00, 0xFE, 0x20, 0x03, }; // [3] & 0x20 == 0: Valve open
 
+        // case GetErrorCodes: // 0x11
+        //     memcpy(response_data, ecu_errors_data, ecu_errors_data[0] + 1);
+        //     break;
+        // case GetRPM: // 0x12
+        //     memcpy(response_data, ecu_rpm_data, ecu_rpm_data[0] + 1);
+        //     break;
+        // case GetTPS: // 0x13
+        //     memcpy(response_data, ecu_tps_data, ecu_tps_data[0] + 1);
+        //     break;
+        // case GetEngineLoad: //0x19
+        //     memcpy(response_data, ecu_ac_data, ecu_ac_data[0] + 1);
+        //     break;
+        // case GetO2Params: // 0x1a
+        //     memcpy(response_data, ecu_lambda_reg_data, ecu_lambda_reg_data[0] + 1);
+        //     break;
+        // case GetFuelPumpParams: // 0x1b
+        //     memcpy(response_data, ecu_engine_power_data, ecu_engine_power_data[0] + 1);
+        //     break;
+        // case GetAdsorberParams: // 0x1c
+        //     memcpy(response_data, ecu_adsorber_data, ecu_adsorber_data[0] + 1);
+        //     break;
+
+void gpio_isr_handler(void* arg);
+
 void enable_led(void)
 {
     gpio_set_level(LED_GPIO, 1);
@@ -138,11 +156,36 @@ void disable_led(void)
     gpio_set_level(LED_GPIO, 0);
 }
 
+void blink_led(uint8_t count)
+{
+    disable_led();
+
+    do {
+        delay(LED_BLINK_DELAY);
+        enable_led();
+        delay(LED_BLINK_DELAY);
+        disable_led();
+    } while (--count > 0);
+}
+
 void configure_led(void)
 {
     gpio_reset_pin(LED_GPIO);
 
     gpio_set_direction(LED_GPIO, GPIO_MODE_OUTPUT);
+}
+
+void setup_k_line_init_isr()
+{
+    gpio_reset_pin(K_LINE_TDX_PIN);
+    gpio_reset_pin(K_LINE_RXD_PIN);
+    gpio_set_direction(K_LINE_INIT_PIN, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(K_LINE_INIT_PIN, GPIO_PULLUP_ENABLE);
+    gpio_set_intr_type(K_LINE_INIT_PIN, GPIO_INTR_ANYEDGE);
+    gpio_install_isr_service(0);
+    gpio_isr_handler_add(K_LINE_INIT_PIN, gpio_isr_handler, (void *) K_LINE_INIT_PIN);
+
+    blink_led(3);
 }
 
 uint8_t find_request_packet_idx(const uint8_t *packet)
@@ -200,30 +243,22 @@ bool k_line_read_byte(uint8_t* rx_buff, bool send_echo)
     return true;
 }
 
-void blink_led(uint8_t count)
-{
-    disable_led();
-
-    do {
-        delay(LED_BLINK_DELAY);
-        enable_led();
-        delay(LED_BLINK_DELAY);
-        disable_led();
-    } while (--count > 0);
-}
-
-void k_line_send_packet(uint8_t* packet)
+void ml41_send_packet(uint8_t* packet)
 {
     for (uint8_t idx = 0; idx <= packet[0]; idx++)
         k_line_send_byte(packet[idx], idx != packet[0]);
 }
 
-void k_line_recv_packet(uint8_t* rx_buff)
+bool ml41_recv_packet(uint8_t* rx_buff)
 {
-    k_line_read_byte(rx_buff, true);
+    if (!k_line_read_byte(rx_buff, true))
+        return false;
 
     for (uint8_t idx = 1; idx <= rx_buff[0]; idx++)
-        k_line_read_byte(rx_buff + idx, idx < rx_buff[0]);
+        if (!k_line_read_byte(rx_buff + idx, idx < rx_buff[0]))
+            return false;
+
+    return true;
 }
 
 bool init_full_speed_uart()
@@ -286,23 +321,25 @@ void start_session()
 
     delay(50);
 
-    k_line_send_packet(ecu_eprom_code);
+    ml41_send_packet(ecu_eprom_code);
 
     delay(10);
 
-    k_line_recv_packet(rx_buffer);
+    if (!ml41_recv_packet(rx_buffer))
+        goto task_end;
 
     delay(50);
 
-    k_line_send_packet(ecu_bosch_code);
+    ml41_send_packet(ecu_bosch_code);
 
     delay(10);
 
-    k_line_recv_packet(rx_buffer);
+    if (!ml41_recv_packet(rx_buffer))
+        goto task_end;
 
     delay(50);
 
-    k_line_send_packet(ecu_gm_code);
+    ml41_send_packet(ecu_gm_code);
 
     uint8_t response_data[64] = { 0x00 };
     uint8_t ecu_connection_sequence_number = 7;
@@ -310,7 +347,8 @@ void start_session()
     while (true) {
         delay(20);
 
-        k_line_recv_packet(rx_buffer);
+        if (!ml41_recv_packet(rx_buffer))
+            goto task_end;
 
         delay(50);
 
@@ -346,20 +384,22 @@ void start_session()
 
         response_data[1] = ecu_connection_sequence_number;
 
-        k_line_send_packet(response_data);
+        ml41_send_packet(response_data);
 
         // update sequence number
         ecu_connection_sequence_number += 2;
     }
 
-    // delay(5000);
-
 task_end:
+    delay(1000);
+
     uart_driver_delete(K_LINE_UART_NUMBER);
 
     disable_led();
 
     ecu_state = 0;
+
+    setup_k_line_init_isr();
 
     vTaskDelete(NULL);
 }
@@ -384,15 +424,7 @@ void app_main(void)
     /* Configure the peripheral according to the LED type */
     configure_led();
 
-    gpio_reset_pin(K_LINE_TDX_PIN);
-    gpio_reset_pin(K_LINE_RXD_PIN);
-    gpio_set_direction(K_LINE_INIT_PIN, GPIO_MODE_INPUT);
-    gpio_set_pull_mode(K_LINE_INIT_PIN, GPIO_PULLUP_ENABLE);
-    gpio_set_intr_type(K_LINE_INIT_PIN, GPIO_INTR_ANYEDGE);
-    gpio_install_isr_service(0);
-    gpio_isr_handler_add(K_LINE_INIT_PIN, gpio_isr_handler, (void *) K_LINE_INIT_PIN);
-
-    blink_led(3);
+    setup_k_line_init_isr();
 
     // xTaskCreate(init_full_speed_uart, "init_full_speed_uart", 16384, NULL, configMAX_PRIORITIES - 2, NULL);
     while (1) {
@@ -404,6 +436,6 @@ void app_main(void)
         // ESP_LOGI(TAG, "GPIO0: %d", gpio_state);
         // blink_led(5);
 
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        delay(1000);
     }
 }
