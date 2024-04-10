@@ -138,7 +138,7 @@ print('---- recv_packet ----')
 recv_packet()
 
 test_requests = [
-#    bytearray(b'\x06\x00\x03\x0D\x00\x00\x03'), # read EPROM
+   bytearray(b'\x06\x00\x03\x0D\x00\x00\x03'), # read EPROM
    bytearray(b'\x04\x00\x08\x00\x03'), # get AFR
    bytearray(b'\x04\x00\x08\x01\x03'), # get Vbat
    bytearray(b'\x04\x00\x08\x02\x03'), # get intake air temp
@@ -156,9 +156,9 @@ test_requests = [
    bytearray(b'\x06\x00\x01\x01\x00\x29\x03'), # get O2 status
    bytearray(b'\x06\x00\x01\x01\x01\x90\x03'), # get fuel pump relay status
    bytearray(b'\x06\x00\x01\x01\x01\xb0\x03'), # get adsorber valve status
-#    bytearray(b'\x04\x00\x04\x0e\x03'),
-#    bytearray(b'\x04\x00\x04\x1f\x03'),
-#    bytearray(b'\x04\x00\x04\x21\x03'),
+   bytearray(b'\x04\x00\x04\x0e\x03'),
+   bytearray(b'\x04\x00\x04\x1f\x03'),
+   bytearray(b'\x04\x00\x04\x21\x03'),
    bytearray(b'\x03\x00\x06\x03'), # end session
 ]
 
