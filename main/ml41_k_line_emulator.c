@@ -197,13 +197,13 @@ uint8_t find_request_packet_idx(const uint8_t *packet)
         if (packet[0] != ECU_REQUESTS[request_idx][0]) // compapre length first
             continue;
 
-        uint8_t byte_idx = 1;
+        uint8_t byte_idx = 2;
 
-        for (; byte_idx <= packet[0]; byte_idx++)
-            if (packet[byte_idx + 1] != ECU_REQUESTS[request_idx][byte_idx + 1])
+        for (; byte_idx < packet[0]; byte_idx++)
+            if (packet[byte_idx] != ECU_REQUESTS[request_idx][byte_idx])
                 break;
 
-        if (byte_idx == packet[0] + 1)
+        if (byte_idx == packet[0])
             return request_idx;
     }
 
