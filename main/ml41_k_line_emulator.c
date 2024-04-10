@@ -347,12 +347,11 @@ void start_session()
     uint8_t ecu_connection_sequence_number = 7;
 
     while (true) {
-        delay(20);
+        // delay(20);
 
-        if (!ml41_recv_packet(rx_buffer))
-            goto task_end;
+        if (!ml41_recv_packet(rx_buffer)) break;
 
-        delay(50);
+        // delay(10);
 
         uint8_t packet_idx = find_request_packet_idx(rx_buffer);
 
@@ -392,6 +391,12 @@ void start_session()
         response_data[1] = ecu_connection_sequence_number;
 
         ml41_send_packet(response_data);
+
+        if (packet_idx == EndSession)
+        {
+            blink_led(5);
+            break;
+        }
 
         // update sequence number
         ecu_connection_sequence_number += 2;
