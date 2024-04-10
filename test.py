@@ -5,7 +5,7 @@ import time
 SERIAL_DEVICE = '/dev/ttyUSB0'
 
 # linux ch341 module works very strange, on 8860 baud it sets real serial speed at half of requested, but works fine with ~8830-8850 baud rate
-serial_port = serial.Serial(SERIAL_DEVICE, 8830, timeout=2)
+serial_port = serial.Serial(SERIAL_DEVICE, 8840, timeout=2)
 
 def esp_reset():
     # Reset
@@ -16,14 +16,10 @@ def esp_reset():
     serial_port.setDTR(True)
 
 def init_connection():
-    # Boot (GPIO0)
-    serial_port.setRTS(False)
-    time.sleep(1)
-    serial_port.setRTS(True)
+    serial_port.send_break(1)
     time.sleep(0.2)
-    serial_port.setRTS(False)
-    time.sleep(0.6)
-    serial_port.setRTS(True)
+    serial_port.send_break(0.6)
+    time.sleep(0.1)
 
 def read_byte(send_echo: bool = False):
     input_byte = serial_port.read(1)
@@ -82,13 +78,16 @@ def send_packet(packet: bytearray):
         send_byte(packet[idx], idx != packet[0])
         idx = idx + 1
 
-#esp_reset()
+# print('---- reset esp32 ----')
+# esp_reset()
 
-#time.sleep(1)
+# time.sleep(2)
 
-serial_port.reset_input_buffer()
+# serial_port.reset_input_buffer()
 
-serial_port.reset_output_buffer()
+# serial_port.reset_output_buffer()
+
+print('---- init connection ----')
 
 init_connection()
 
@@ -162,7 +161,6 @@ test_requests = [
 #    bytearray(b'\x04\x00\x04\x21\x03'),
    bytearray(b'\x03\x00\x06\x03'), # end session
 ]
-
 
 for request in test_requests:
     print('---- send_packet ----')

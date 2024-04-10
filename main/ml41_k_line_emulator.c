@@ -21,12 +21,6 @@ static const char *TAG = "ml41-emulator";
 #define K_LINE_TDX_PIN GPIO_NUM_1
 #define K_LINE_RXD_PIN GPIO_NUM_3
 
-#define K_LINE_INIT_PIN K_LINE_RXD_PIN
-
-#ifndef K_LINE_INIT_PIN
-#define K_LINE_INIT_PIN GPIO_NUM_0
-#endif
-
 // #define K_LINE_UART_NUMBER UART_NUM_2
 // #define K_LINE_TDX_PIN GPIO_NUM_17
 // #define K_LINE_RXD_PIN GPIO_NUM_16
@@ -179,11 +173,13 @@ void setup_k_line_init_isr()
 {
     gpio_reset_pin(K_LINE_TDX_PIN);
     gpio_reset_pin(K_LINE_RXD_PIN);
-    gpio_set_direction(K_LINE_INIT_PIN, GPIO_MODE_INPUT);
-    gpio_set_pull_mode(K_LINE_INIT_PIN, GPIO_PULLUP_ENABLE);
-    gpio_set_intr_type(K_LINE_INIT_PIN, GPIO_INTR_ANYEDGE);
+    gpio_set_direction(K_LINE_RXD_PIN, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(K_LINE_RXD_PIN, GPIO_PULLUP_ENABLE);
+    gpio_set_intr_type(K_LINE_RXD_PIN, GPIO_INTR_ANYEDGE);
     gpio_install_isr_service(0);
-    gpio_isr_handler_add(K_LINE_INIT_PIN, gpio_isr_handler, (void *) K_LINE_INIT_PIN);
+    gpio_isr_handler_add(K_LINE_RXD_PIN, gpio_isr_handler, (void *) K_LINE_RXD_PIN);
+
+    ecu_state = 0;
 
     blink_led(3);
 }
@@ -397,8 +393,6 @@ task_end:
 
     disable_led();
 
-    ecu_state = 0;
-
     setup_k_line_init_isr();
 
     vTaskDelete(NULL);
@@ -406,15 +400,17 @@ task_end:
 
 void gpio_isr_handler(void* arg)
 {
-    if (xTaskGetTickCount() - last_isr_call_time < MS_TICKS(500))
+    if (xTaskGetTickCount() - last_isr_call_time < MS_TICKS(100))
+    {
         return;
+    }
 
     last_isr_call_time = xTaskGetTickCount();
 
     if (ecu_state == 0 && ++interrupts_count == 2) {
         ecu_state = 1;
         interrupts_count = 0;
-        gpio_isr_handler_remove(K_LINE_INIT_PIN);
+        gpio_isr_handler_remove(K_LINE_RXD_PIN);
         xTaskCreate(start_session, "start_session", 16384, NULL, configMAX_PRIORITIES - 2, NULL);
     }
 }
