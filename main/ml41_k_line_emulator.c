@@ -245,10 +245,13 @@ bool k_line_read_byte(uint8_t* rx_buff, bool send_echo)
     return true;
 }
 
-void ml41_send_packet(uint8_t* packet)
+bool ml41_send_packet(uint8_t* packet)
 {
     for (uint8_t idx = 0; idx <= packet[0]; idx++)
-        k_line_send_byte(packet[idx], idx != packet[0]);
+        if (!k_line_send_byte(packet[idx], idx != packet[0]))
+            return false;
+
+    return true;
 }
 
 bool ml41_recv_packet(uint8_t* rx_buff)
@@ -316,42 +319,36 @@ void start_session()
 {
     uint8_t rx_buffer[32] = { 0x00 };
 
-    if (!init_full_speed_uart())
-        goto task_end;
+    if (!init_full_speed_uart()) goto task_end;
 
     enable_led();
 
     delay(50);
 
-    ml41_send_packet(ecu_eprom_code);
+    if (!ml41_send_packet(ecu_eprom_code)) goto task_end;
 
     delay(10);
 
-    if (!ml41_recv_packet(rx_buffer))
-        goto task_end;
+    if (!ml41_recv_packet(rx_buffer)) goto task_end;
 
     delay(50);
 
-    ml41_send_packet(ecu_bosch_code);
+    if (!ml41_send_packet(ecu_bosch_code)) goto task_end;
 
     delay(10);
 
-    if (!ml41_recv_packet(rx_buffer))
-        goto task_end;
+    if (!ml41_recv_packet(rx_buffer)) goto task_end;
 
     delay(50);
 
-    ml41_send_packet(ecu_gm_code);
+    if (!ml41_send_packet(ecu_gm_code))
+        goto task_end;
 
     uint8_t response_data[64] = { 0x00 };
     uint8_t ecu_connection_sequence_number = 7;
 
     while (true) {
-        // delay(20);
-
         if (!ml41_recv_packet(rx_buffer)) break;
-
-        // delay(10);
 
         uint8_t packet_idx = find_request_packet_idx(rx_buffer);
 
@@ -360,37 +357,9 @@ void start_session()
 
         memcpy(response_data, response_table[packet_idx], response_table[packet_idx][0] + 1);
 
-        // switch (packet_idx)
-        // {
-        // case GetErrorCodes: // 0x11
-        //     memcpy(response_data, ecu_errors_data, ecu_errors_data[0] + 1);
-        //     break;
-        // case GetRPM: // 0x12
-        //     memcpy(response_data, ecu_rpm_data, ecu_rpm_data[0] + 1);
-        //     break;
-        // case GetTPS: // 0x13
-        //     memcpy(response_data, ecu_tps_data, ecu_tps_data[0] + 1);
-        //     break;
-        // case GetEngineLoad: //0x19
-        //     memcpy(response_data, ecu_ac_data, ecu_ac_data[0] + 1);
-        //     break;
-        // case GetO2Params: // 0x1a
-        //     memcpy(response_data, ecu_lambda_reg_data, ecu_lambda_reg_data[0] + 1);
-        //     break;
-        // case GetFuelPumpParams: // 0x1b
-        //     memcpy(response_data, ecu_engine_power_data, ecu_engine_power_data[0] + 1);
-        //     break;
-        // case GetAdsorberParams: // 0x1c
-        //     memcpy(response_data, ecu_adsorber_data, ecu_adsorber_data[0] + 1);
-        //     break;
-        // default:
-        //     memcpy(response_data, ecu_no_data, ecu_no_data[0] + 1);
-        //     break;
-        // }
-
         response_data[1] = ecu_connection_sequence_number;
 
-        ml41_send_packet(response_data);
+        if (!ml41_send_packet(response_data)) break;
 
         if (packet_idx == EndSession)
         {
