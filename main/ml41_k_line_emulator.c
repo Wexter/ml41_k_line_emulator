@@ -244,11 +244,16 @@ bool k_line_read_byte(uint8_t* rx_buff, bool send_echo)
     uint8_t echo_byte = ~(*rx_buff);
     uart_write_bytes(K_LINE_UART_NUMBER, &echo_byte, 1);
 
+    ESP_LOGI(__FUNCTION__, "Txe: %X", echo_byte);
     return true;
 }
 
 bool ml41_send_packet(uint8_t* packet)
 {
+    ESP_LOGI(__FUNCTION__, "Sending packet");
+
+    ESP_LOG_BUFFER_HEXDUMP(__FUNCTION__, packet, packet[0] + 1, ESP_LOG_INFO);
+
     for (uint8_t idx = 0; idx <= packet[0]; idx++)
         if (!k_line_send_byte(packet[idx], idx != packet[0]))
             return false;
@@ -260,6 +265,8 @@ bool ml41_recv_packet(uint8_t* rx_buff)
 {
     if (!k_line_read_byte(rx_buff, true))
         return false;
+
+    ESP_LOGI(__FUNCTION__, "Recv packet length: %d", rx_buff[0]);
 
     for (uint8_t idx = 1; idx <= rx_buff[0]; idx++)
         if (!k_line_read_byte(rx_buff + idx, idx < rx_buff[0]))
@@ -355,7 +362,11 @@ void start_session()
     uint8_t ecu_connection_sequence_number = 7;
 
     while (true) {
-        if (!ml41_recv_packet(rx_buffer)) break;
+        if (!ml41_recv_packet(rx_buffer))
+        {
+            ESP_LOGI(__FUNCTION__, "packet recv error");
+            break;
+        }
 
         uint8_t packet_idx = find_request_packet_idx(rx_buffer);
 
@@ -366,10 +377,15 @@ void start_session()
 
         response_data[1] = ecu_connection_sequence_number;
 
-        if (!ml41_send_packet(response_data)) break;
+        if (!ml41_send_packet(response_data))
+        {
+            ESP_LOGI(__FUNCTION__, "packet send error");
+            break;
+        }
 
         if (packet_idx == EndSession)
         {
+            ESP_LOGI(__FUNCTION__, "EndSession packet received");
             blink_led(5);
             break;
         }
