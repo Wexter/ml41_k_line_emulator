@@ -8,8 +8,6 @@
 #include "esp_system.h"
 #include <string.h>
 
-static const char *TAG = "ml41-emulator";
-
 #define LED_GPIO 2
 #define MS_TICKS(ms) (ms / portTICK_PERIOD_MS)
 #define delay(ms) vTaskDelay(ms / portTICK_PERIOD_MS)
@@ -17,13 +15,13 @@ static const char *TAG = "ml41-emulator";
 #define UART_BAUD_RATE 8860
 #define UART_RX_BUF_SIZE 256
 
-#define K_LINE_UART_NUMBER UART_NUM_0
-#define K_LINE_TDX_PIN GPIO_NUM_1
-#define K_LINE_RXD_PIN GPIO_NUM_3
+// #define K_LINE_UART_NUMBER UART_NUM_0
+// #define K_LINE_TDX_PIN GPIO_NUM_1
+// #define K_LINE_RXD_PIN GPIO_NUM_3
 
-// #define K_LINE_UART_NUMBER UART_NUM_2
-// #define K_LINE_TDX_PIN GPIO_NUM_17
-// #define K_LINE_RXD_PIN GPIO_NUM_16
+#define K_LINE_UART_NUMBER UART_NUM_2
+#define K_LINE_TDX_PIN GPIO_NUM_17
+#define K_LINE_RXD_PIN GPIO_NUM_16
 
 #define LED_BLINK_DELAY 100
 #define ECU_MAX_REQUEST 0x1F
@@ -183,7 +181,7 @@ void setup_k_line_init_isr()
 
     ecu_state = 0;
 
-    blink_led(3);
+    // blink_led(3);
 }
 
 uint8_t find_request_packet_idx(const uint8_t *packet)
@@ -208,29 +206,37 @@ uint8_t find_request_packet_idx(const uint8_t *packet)
 
 bool k_line_send_byte(uint8_t byte, bool wait_echo)
 {
+    uart_flush_input(K_LINE_UART_NUMBER);
+
     uart_write_bytes(K_LINE_UART_NUMBER, &byte, 1);
+
+    ESP_LOGI(__FUNCTION__, "Tx: %X", byte);
 
     if (!wait_echo)
         return true;
 
     uint8_t rx_buff;
 
-    if (1 > uart_read_bytes(K_LINE_UART_NUMBER, &rx_buff, 1, 1000 / portTICK_PERIOD_MS))
+    if (1 > uart_read_bytes(K_LINE_UART_NUMBER, &rx_buff, 1, MS_TICKS(1000)))
         return false;
 
     // emulate k-line
-    uart_write_bytes(K_LINE_UART_NUMBER, &rx_buff, 1);
+    // uart_write_bytes(K_LINE_UART_NUMBER, &rx_buff, 1);
+
+    ESP_LOGI(__FUNCTION__, "Rxe: %X", rx_buff);
 
     return (byte + rx_buff) == 0xFF;
 }
 
 bool k_line_read_byte(uint8_t* rx_buff, bool send_echo)
 {
-    if (1 > uart_read_bytes(K_LINE_UART_NUMBER, rx_buff, 1, 1000 / portTICK_PERIOD_MS))
+    if (1 > uart_read_bytes(K_LINE_UART_NUMBER, rx_buff, 1, MS_TICKS(1000)))
         return false;
 
+    ESP_LOGI(__FUNCTION__, "Rx: %X", *rx_buff);
+
     // emulate k-line with duplicating host-sent byte on host RX
-    uart_write_bytes(K_LINE_UART_NUMBER, rx_buff, 1);
+    // uart_write_bytes(K_LINE_UART_NUMBER, rx_buff, 1);
 
     if (!send_echo)
         return true;
@@ -264,12 +270,6 @@ bool ml41_recv_packet(uint8_t* rx_buff)
 
 bool init_full_speed_uart()
 {
-    delay(750);
-
-    ESP_LOGI(TAG, "init_full_speed_uart");
-
-    blink_led(1);
-
     const uart_config_t uart_config = {
         .baud_rate = UART_BAUD_RATE,
         .data_bits = UART_DATA_8_BITS,
@@ -290,21 +290,26 @@ bool init_full_speed_uart()
 
     delay(200);
 
-    k_line_send_byte( 0x55, false);
+    ESP_LOGI(__FUNCTION__, "Send sync pattern");
 
-    delay(50);
+    k_line_send_byte(0x55, false);
+
+    delay(100);
+
+    ESP_LOGI(__FUNCTION__, "Send KW1");
 
     if (!k_line_send_byte(0x38, true))
     {
-        blink_led(2);
+        ESP_LOGI(__FUNCTION__, "KW1 send failed");
         return false;
     }
 
     delay(10);
 
+    ESP_LOGI(__FUNCTION__, "Send KW2");
     if (!k_line_send_byte(0x80, true))
     {
-        blink_led(3);
+        ESP_LOGI(__FUNCTION__, "KW2 send failed");
         return false;
     }
 
@@ -315,11 +320,17 @@ void start_session()
 {
     uint8_t rx_buffer[32] = { 0x00 };
 
+    // delay(100);
+
+    ESP_LOGI(__FUNCTION__, "Starting full speed uart");
+
     if (!init_full_speed_uart()) goto task_end;
 
     enable_led();
 
     delay(50);
+
+    ESP_LOGI(__FUNCTION__, "Send ECU EPROM code");
 
     if (!ml41_send_packet(ecu_eprom_code)) goto task_end;
 
@@ -368,6 +379,8 @@ void start_session()
     }
 
 task_end:
+    ESP_LOGI(__FUNCTION__, "session end");
+
     delay(1000);
 
     uart_driver_delete(K_LINE_UART_NUMBER);
@@ -379,6 +392,16 @@ task_end:
     vTaskDelete(NULL);
 }
 
+void update_ecu_params()
+{
+    do {
+        // for (uint8_t idx = )
+        delay(200);
+    } while (ecu_state != 0);
+
+    vTaskDelete(NULL);
+}
+
 void gpio_isr_handler(void* arg)
 {
     if (xTaskGetTickCount() - last_isr_call_time < MS_TICKS(100))
@@ -386,11 +409,12 @@ void gpio_isr_handler(void* arg)
 
     last_isr_call_time = xTaskGetTickCount();
 
-    if (ecu_state == 0 && ++interrupts_count == 2) {
+    if (ecu_state == 0 && ++interrupts_count == 4) {
         ecu_state = 1;
         interrupts_count = 0;
         gpio_isr_handler_remove(K_LINE_RXD_PIN);
         xTaskCreate(start_session, "start_session", 16384, NULL, configMAX_PRIORITIES - 2, NULL);
+        xTaskCreate(update_ecu_params, "update_ecu_params", 16384, NULL, configMAX_PRIORITIES - 2, NULL);
     }
 }
 
@@ -403,12 +427,12 @@ void app_main(void)
 
     // xTaskCreate(init_full_speed_uart, "init_full_speed_uart", 16384, NULL, configMAX_PRIORITIES - 2, NULL);
     while (1) {
-        // ESP_LOGI(TAG, "Turning the LED %s!", s_led_state == true ? "ON" : "OFF");
+        // ESP_LOGI(__FUNCTION__, "Turning the LED %s!", s_led_state == true ? "ON" : "OFF");
         // blink_led();
         // /* Toggle the LED state */
         // s_led_state = !s_led_state;
         // gpio_state = gpio_get_level(GPIO_NUM_0);
-        // ESP_LOGI(TAG, "GPIO0: %d", gpio_state);
+        // ESP_LOGI(__FUNCTION__, "GPIO0: %d", gpio_state);
         // blink_led(5);
 
         delay(1000);
